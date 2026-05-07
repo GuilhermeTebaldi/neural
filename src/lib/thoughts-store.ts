@@ -67,6 +67,7 @@ function hydrateNode(node: any, minTs: number, maxTs: number): ThoughtNode {
     importance: node.importance !== undefined ? node.importance : 0.5,
     confidence: node.confidence !== undefined ? node.confidence : 0.5,
     connections: node.connections || [],
+    contradiz: node.contradiz || [],
     type: node.type || 'hipotese',
     tags: node.tags || [],
     links: node.links || []
@@ -571,7 +572,7 @@ export function updateThought(
   nodeId: string,
   updates: Partial<Pick<
     ThoughtNode,
-    'title' | 'content' | 'type' | 'images' | 'tags' | 'source' | 'period' | 'factualConfidence' | 'hypothesisConfidence' | 'evidenceConfidence' | 'hypotheses' | 'evidences'
+    'title' | 'content' | 'type' | 'images' | 'tags' | 'source' | 'period' | 'temporalidade' | 'factualConfidence' | 'hypothesisConfidence' | 'evidenceConfidence' | 'origemCognitiva' | 'origemInferencia' | 'contradiz' | 'hypotheses' | 'evidences'
   >>
 ): void {
   logger.info(`Updating thought: ${nodeId}`);

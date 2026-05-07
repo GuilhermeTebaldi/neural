@@ -235,6 +235,80 @@ export default function ThoughtControls({
     return Math.max(0, Math.min(100, Math.round(normalized * 100) / 100));
   };
 
+  const toSlug = (value: string, fallback: string) => {
+    const base = (value || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    return base || fallback.toLowerCase();
+  };
+
+  const summarizeText = (value: string, maxLen = 220) => {
+    const normalized = (value || '').replace(/\s+/g, ' ').trim();
+    if (!normalized) return '';
+    if (normalized.length <= maxLen) return normalized;
+    return `${normalized.slice(0, maxLen - 3)}...`;
+  };
+
+  const classifyEpistemicType = (nodeType: ThoughtType) => {
+    if (nodeType === 'fato') return 'observacao';
+    if (nodeType === 'hipotese') return 'hipotese';
+    if (nodeType === 'duvida') return 'pergunta_aberta';
+    if (nodeType === 'discovery') return 'inferencia';
+    return 'registro_estrutural';
+  };
+
+  const parseTemporalidade = (period?: string) => {
+    const raw = (period || '').trim();
+    if (!raw) {
+      return {
+        inicio: null,
+        fim: null,
+        precisao: 'nao_informada',
+        textoOriginal: null
+      };
+    }
+
+    const year = raw.match(/^(\d{4})$/);
+    if (year) {
+      return {
+        inicio: year[1],
+        fim: year[1],
+        precisao: 'ano',
+        textoOriginal: raw
+      };
+    }
+
+    const yearRange = raw.match(/^(\d{4})\s*(?:-|a|ate)\s*(\d{4})$/i);
+    if (yearRange) {
+      return {
+        inicio: yearRange[1],
+        fim: yearRange[2],
+        precisao: 'aproximada',
+        textoOriginal: raw
+      };
+    }
+
+    const day = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (day) {
+      return {
+        inicio: raw,
+        fim: raw,
+        precisao: 'dia',
+        textoOriginal: raw
+      };
+    }
+
+    return {
+      inicio: null,
+      fim: null,
+      precisao: 'aproximada',
+      textoOriginal: raw
+    };
+  };
+
   const buildScientificProjectPayload = () => {
     if (!activeLineageId) return null;
 
@@ -247,7 +321,8 @@ export default function ThoughtControls({
       target: string,
       tipoConexao: string,
       origem: string,
-      label?: string
+      label?: string,
+      peso = 0.5
     ) => {
       if (!lineageSet.has(source) || !lineageSet.has(target) || source === target) return;
       const key = `${source}|${target}|${tipoConexao}|${origem}`;
@@ -257,39 +332,52 @@ export default function ThoughtControls({
         target,
         tipoConexao,
         origem,
-        label: label || null
+        label: label || null,
+        peso
       });
     };
 
     data.links.forEach((link) => {
-      pushRelation(link.source, link.target, link.label || 'hierarquia', 'graph.links', link.label);
+      pushRelation(link.source, link.target, link.label || 'hierarquia', 'graph.links', link.label, 0.9);
     });
 
     lineageNodes.forEach((node) => {
       node.links.forEach((targetId) => {
-        pushRelation(node.id, targetId, 'referencia_manual', 'node.links');
+        pushRelation(node.id, targetId, 'referencia_manual', 'node.links', undefined, 0.85);
       });
       node.connections.forEach((targetId) => {
-        pushRelation(node.id, targetId, 'similaridade_semantica', 'node.connections');
+        pushRelation(node.id, targetId, 'similaridade_semantica', 'node.connections', undefined, 0.62);
+      });
+
+      const contradictions = Array.isArray((node as any).contradiz) ? ((node as any).contradiz as string[]) : [];
+      contradictions.forEach((targetId) => {
+        pushRelation(node.id, targetId, 'contradicao', 'node.contradiz', 'contradiz', 0.95);
       });
     });
 
     const nodes = lineageNodes.map((node) => ({
       id: node.id,
+      slug: toSlug(node.title, node.id),
       titulo: node.title,
       contexto: node.content,
+      contextoResumo: summarizeText(node.content, 240),
       tipo: node.type,
+      classificacaoEpistemica: classifyEpistemicType(node.type),
+      origemCognitiva: (node as any).origemCognitiva || 'humana',
+      origemInferencia: (node as any).origemInferencia || null,
       parentId: node.parentId || null,
       criadoEm: new Date(node.createdAt).toISOString(),
       atualizadoEm: new Date(node.updatedAt).toISOString(),
       fonte: node.source || null,
       periodo: node.period || null,
+      temporalidade: parseTemporalidade(node.period),
       confiabilidade: {
         factual: normalizeConfidence(node.factualConfidence),
         hipotese: normalizeConfidence(node.hypothesisConfidence),
         evidencia: normalizeConfidence(node.evidenceConfidence),
         geral: normalizeConfidence(node.confidence)
       },
+      contradiz: Array.isArray((node as any).contradiz) ? (node as any).contradiz : [],
       tags: node.tags || [],
       hipotesesAssociadas: node.hypotheses || [],
       evidenciasAssociadas: node.evidences || [],
@@ -398,12 +486,25 @@ export default function ThoughtControls({
         rootNodeId: activeLineageId,
         rootNodeTitle: activeLineageRoot?.title || null
       },
+      root: {
+        id: activeLineageRoot?.id || activeLineageId,
+        slug: toSlug(activeLineageRoot?.title || activeLineageId, activeLineageId),
+        titulo: activeLineageRoot?.title || null,
+        resumo: summarizeText(activeLineageRoot?.content || '', 320),
+        objetivoPrincipal: summarizeText(activeLineageRoot?.content || activeLineageRoot?.title || '', 180)
+      },
       schema: {
         NodeConfidence: {
           factual: 'number|null (0-100)',
           hypothesis: 'number|null (0-100)',
           evidence: 'number|null (0-100)',
           geral: 'number|null (0-100)'
+        },
+        Temporalidade: {
+          inicio: 'string|null',
+          fim: 'string|null',
+          precisao: 'dia|ano|aproximada|nao_informada',
+          textoOriginal: 'string|null'
         }
       },
       nodes,
@@ -440,12 +541,20 @@ export default function ThoughtControls({
         },
         contextPackets: nodes.map((node) => ({
           nodeId: node.id,
+          slug: node.slug,
+          classificacaoEpistemica: node.classificacaoEpistemica,
           text: [
             `titulo: ${node.titulo}`,
+            `slug: ${node.slug}`,
             `tipo: ${node.tipo}`,
-            `contexto: ${node.contexto}`,
+            `classificacao_epistemica: ${node.classificacaoEpistemica}`,
+            `origem_cognitiva: ${node.origemCognitiva}`,
+            `origem_inferencia: ${node.origemInferencia || 'nao_informado'}`,
+            `contexto_resumo: ${node.contextoResumo}`,
             `fonte: ${node.fonte || 'nao_informado'}`,
             `periodo: ${node.periodo || 'nao_informado'}`,
+            `temporalidade_precisao: ${node.temporalidade.precisao}`,
+            `contradiz: ${(node.contradiz || []).join(', ') || 'nenhum'}`,
             `tags: ${(node.tags || []).join(', ') || 'nao_informado'}`
           ].join('\n')
         }))

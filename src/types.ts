@@ -9,6 +9,7 @@ export type GraphViewMode = 'neural' | 'radial' | 'hierarchical' | 'flow' | 'syn
 
 export interface ThoughtNode {
   id: string;
+  slug?: string;
   title: string;
   content: string;
   type: ThoughtType;
@@ -25,9 +26,18 @@ export interface ThoughtNode {
   images?: string[];
   source?: string;
   period?: string;
+  temporalidade?: {
+    inicio?: string | null;
+    fim?: string | null;
+    precisao?: string;
+    textoOriginal?: string | null;
+  };
   factualConfidence?: number;
   hypothesisConfidence?: number;
   evidenceConfidence?: number;
+  origemCognitiva?: 'humana' | 'ia' | 'mista' | string;
+  origemInferencia?: 'LLM' | 'heuristica' | 'manual' | string;
+  contradiz?: string[];
   hypotheses?: string[];
   evidences?: string[];
 }
