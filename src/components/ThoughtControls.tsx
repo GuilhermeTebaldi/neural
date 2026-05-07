@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Plus, Brain, Database, X, ChevronRight, Zap, Target, MessageCircle, Sparkles, Loader2, GitGraph, ArrowDownRight, ArrowLeft, Send, RefreshCcw, ShieldCheck, Lightbulb, ImageIcon, Trash2 } from 'lucide-react';
-import { ThoughtNode, ThoughtType, MentalArchitecture } from '../types';
+import { Plus, Brain, Database, X, ChevronRight, Zap, Target, MessageCircle, Sparkles, Loader2, GitGraph, ArrowDownRight, ArrowLeft, Send, ShieldCheck, Lightbulb, ImageIcon, Trash2, Settings, Orbit, GitBranch, Share2, Cpu, Download } from 'lucide-react';
+import { ThoughtNode, ThoughtType, MentalArchitecture, GraphViewMode } from '../types';
 import { addThought, getMentalData, getRootNodes, getRelevantNodes, analyzeMemory, createExampleLongevityProject } from '../lib/thoughts-store';
 import { askMindArchitect, ChatMessage, generateEmbedding } from '../services/aiService';
 import { MemoryCleaningModal } from './MemoryCleaningModal';
@@ -18,6 +18,8 @@ interface ThoughtControlsProps {
   data: MentalArchitecture;
   onRefreshData: () => void;
   onDelete: (id: string) => void;
+  viewMode: GraphViewMode;
+  onViewModeChange: (mode: GraphViewMode) => void;
 }
 
 export default function ThoughtControls({ 
@@ -30,7 +32,9 @@ export default function ThoughtControls({
   setIsAdding,
   data,
   onRefreshData,
-  onDelete
+  onDelete,
+  viewMode,
+  onViewModeChange
 }: ThoughtControlsProps) {
   const [query, setQuery] = useState('');
   const [newTitle, setNewTitle] = useState('');
@@ -41,10 +45,12 @@ export default function ThoughtControls({
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [isCleaningOpen, setIsCleaningOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [newImages, setNewImages] = useState<string[]>([]);
   const [imageUrlInput, setImageUrlInput] = useState('');
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
+  const settingsMenuRef = useRef<HTMLDivElement>(null);
 
   // Auto-focus title input when adding UI opens
   useEffect(() => {
@@ -131,6 +137,27 @@ export default function ThoughtControls({
     }
   }, [chatHistory]);
 
+  useEffect(() => {
+    if (!isSettingsOpen) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (settingsMenuRef.current && !settingsMenuRef.current.contains(event.target as Node)) {
+        setIsSettingsOpen(false);
+      }
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsSettingsOpen(false);
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [isSettingsOpen]);
+
   const handleAiSynthesis = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!query.trim()) return;
@@ -170,28 +197,294 @@ export default function ThoughtControls({
     { value: 'discovery', label: 'Descoberta', icon: Zap, color: 'text-emerald-600', bg: 'bg-emerald-50' },
   ];
 
-  const roots = data.nodes.filter(n => !n.parentId);
-  const history = [...data.nodes].sort((a, b) => b.createdAt - a.createdAt).slice(0, 10);
+  const viewModes: { mode: GraphViewMode; label: string; icon: any }[] = [
+    { mode: 'flow', label: 'Fluxo Evolutivo', icon: Share2 },
+    { mode: 'neural', label: 'Rede Neural', icon: Zap },
+    { mode: 'radial', label: 'Núcleos de Atração', icon: Orbit },
+    { mode: 'hierarchical', label: 'Mapa de Linhagem', icon: GitBranch },
+    { mode: 'synapse', label: 'Malha Sináptica', icon: Cpu },
+  ];
 
-  // Filter lineage items if focused
-  const lineageNodes = React.useMemo(() => {
+  const lineageNodes = useMemo(() => {
     if (!activeLineageId) return [];
-    
+
     const visited = new Set<string>();
     const nodes: ThoughtNode[] = [];
     const traverse = (id: string) => {
       if (visited.has(id)) return;
       visited.add(id);
-      const node = data.nodes.find(n => n.id === id);
+      const node = data.nodes.find((entry) => entry.id === id);
       if (node) {
         nodes.push(node);
-        data.nodes.filter(n => n.parentId === id).forEach(child => traverse(child.id));
-        node.links.forEach(link => traverse(link));
+        data.nodes.filter((entry) => entry.parentId === id).forEach((child) => traverse(child.id));
+        node.links.forEach((link) => traverse(link));
       }
     };
     traverse(activeLineageId);
     return nodes.sort((a, b) => b.createdAt - a.createdAt);
   }, [activeLineageId, data.nodes]);
+
+  const activeLineageRoot = useMemo(
+    () => (activeLineageId ? lineageNodes.find((node) => node.id === activeLineageId) || null : null),
+    [activeLineageId, lineageNodes]
+  );
+
+  const normalizeConfidence = (value?: number | null) => {
+    if (typeof value !== 'number' || Number.isNaN(value)) return null;
+    const normalized = value <= 1 ? value * 100 : value;
+    return Math.max(0, Math.min(100, Math.round(normalized * 100) / 100));
+  };
+
+  const buildScientificProjectPayload = () => {
+    if (!activeLineageId) return null;
+
+    const lineageSet = new Set(lineageNodes.map((node) => node.id));
+    if (lineageSet.size === 0) return null;
+
+    const relationMap = new Map<string, any>();
+    const pushRelation = (
+      source: string,
+      target: string,
+      tipoConexao: string,
+      origem: string,
+      label?: string
+    ) => {
+      if (!lineageSet.has(source) || !lineageSet.has(target) || source === target) return;
+      const key = `${source}|${target}|${tipoConexao}|${origem}`;
+      if (relationMap.has(key)) return;
+      relationMap.set(key, {
+        source,
+        target,
+        tipoConexao,
+        origem,
+        label: label || null
+      });
+    };
+
+    data.links.forEach((link) => {
+      pushRelation(link.source, link.target, link.label || 'hierarquia', 'graph.links', link.label);
+    });
+
+    lineageNodes.forEach((node) => {
+      node.links.forEach((targetId) => {
+        pushRelation(node.id, targetId, 'referencia_manual', 'node.links');
+      });
+      node.connections.forEach((targetId) => {
+        pushRelation(node.id, targetId, 'similaridade_semantica', 'node.connections');
+      });
+    });
+
+    const nodes = lineageNodes.map((node) => ({
+      id: node.id,
+      titulo: node.title,
+      contexto: node.content,
+      tipo: node.type,
+      parentId: node.parentId || null,
+      criadoEm: new Date(node.createdAt).toISOString(),
+      atualizadoEm: new Date(node.updatedAt).toISOString(),
+      fonte: node.source || null,
+      periodo: node.period || null,
+      confiabilidade: {
+        factual: normalizeConfidence(node.factualConfidence),
+        hipotese: normalizeConfidence(node.hypothesisConfidence),
+        evidencia: normalizeConfidence(node.evidenceConfidence),
+        geral: normalizeConfidence(node.confidence)
+      },
+      tags: node.tags || [],
+      hipotesesAssociadas: node.hypotheses || [],
+      evidenciasAssociadas: node.evidences || [],
+      imagens: node.images || []
+    }));
+
+    const typeDescriptions: Record<string, string> = {
+      thought: 'Pensamento base',
+      fato: 'Fato observado ou documentado',
+      hipotese: 'Hipótese em avaliação',
+      projeto: 'Projeto ou iniciativa estruturada',
+      sequencia: 'Sequência evolutiva',
+      ideia: 'Ideia em construção',
+      duvida: 'Dúvida ou questão aberta',
+      discovery: 'Descoberta gerada no processo',
+      emotion: 'Marcador emocional',
+      project: 'Projeto (legado)',
+      milestone: 'Marco (legado)'
+    };
+
+    const nodeTypes = Array.from(
+      lineageNodes.reduce((acc, node) => {
+        const entry = acc.get(node.type) || { tipo: node.type, quantidade: 0, descricao: typeDescriptions[node.type] || 'Tipo customizado' };
+        entry.quantidade += 1;
+        acc.set(node.type, entry);
+        return acc;
+      }, new Map<string, { tipo: string; quantidade: number; descricao: string }>())
+    ).map(([, value]) => value);
+
+    const timeline = [...lineageNodes]
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .map((node, index) => ({
+        ordem: index + 1,
+        nodeId: node.id,
+        titulo: node.title,
+        tipo: node.type,
+        createdAt: new Date(node.createdAt).toISOString(),
+        updatedAt: new Date(node.updatedAt).toISOString()
+      }));
+
+    const hypotheses = lineageNodes.flatMap((node) => {
+      const fromManualMeta = (node.hypotheses || []).map((text, idx) => ({
+        id: `h-manual-${node.id}-${idx}`,
+        nodeId: node.id,
+        texto: text,
+        origem: 'metadata_manual',
+        confiabilidade: normalizeConfidence(node.hypothesisConfidence)
+      }));
+
+      const fromTypeNode =
+        node.type === 'hipotese'
+          ? [
+              {
+                id: `h-node-${node.id}`,
+                nodeId: node.id,
+                texto: node.content || node.title,
+                origem: 'node_tipo_hipotese',
+                confiabilidade: normalizeConfidence(node.hypothesisConfidence ?? node.confidence)
+              }
+            ]
+          : [];
+
+      return [...fromTypeNode, ...fromManualMeta];
+    });
+
+    const evidences = lineageNodes.flatMap((node) => {
+      const fromManualMeta = (node.evidences || []).map((text, idx) => ({
+        id: `e-manual-${node.id}-${idx}`,
+        nodeId: node.id,
+        texto: text,
+        origem: 'metadata_manual',
+        confiabilidade: normalizeConfidence(node.evidenceConfidence),
+        fonte: node.source || null
+      }));
+
+      const fromTypeNode =
+        node.type === 'fato' || node.type === 'discovery'
+          ? [
+              {
+                id: `e-node-${node.id}`,
+                nodeId: node.id,
+                texto: node.content || node.title,
+                origem: 'node_tipo_evidencia',
+                confiabilidade: normalizeConfidence(node.evidenceConfidence ?? node.factualConfidence ?? node.confidence),
+                fonte: node.source || null
+              }
+            ]
+          : [];
+
+      const fromImages = (node.images || []).map((url, idx) => ({
+        id: `e-img-${node.id}-${idx}`,
+        nodeId: node.id,
+        texto: url,
+        origem: 'imagem_evidencia',
+        confiabilidade: normalizeConfidence(node.evidenceConfidence),
+        fonte: node.source || null
+      }));
+
+      return [...fromTypeNode, ...fromManualMeta, ...fromImages];
+    });
+
+    return {
+      metadata: {
+        formato: 'scientific_project_context_v1',
+        exportedAt: new Date().toISOString(),
+        rootNodeId: activeLineageId,
+        rootNodeTitle: activeLineageRoot?.title || null
+      },
+      schema: {
+        NodeConfidence: {
+          factual: 'number|null (0-100)',
+          hypothesis: 'number|null (0-100)',
+          evidence: 'number|null (0-100)',
+          geral: 'number|null (0-100)'
+        }
+      },
+      nodes,
+      nodeTypes,
+      relations: Array.from(relationMap.values()),
+      timeline,
+      hypotheses,
+      evidences,
+      ui: {
+        selectedLineageId: activeLineageId,
+        selectedLineageTitle: activeLineageRoot?.title || null,
+        graphViewMode: viewMode,
+        panelPriority: 'conteudo_do_no'
+      },
+      storage: {
+        architectureVersion: data.version,
+        exportedNodeCount: nodes.length,
+        exportedRelationCount: relationMap.size
+      },
+      ai: {
+        objective: 'Fornecer contexto de linhagem para interpretação científica em LLM',
+        ingestionGuide: [
+          'Use nodes como entidades primárias.',
+          'Use relations como grafo direcionado.',
+          'Trate hipótese como hipótese e evidência como evidência.',
+          'Use confiabilidade apenas como peso epistemológico, não como verdade absoluta.'
+        ],
+        confidenceScale: {
+          '0-20': 'especulacao_extrema',
+          '21-40': 'hipotese_fraca',
+          '41-60': 'hipotese_plausivel',
+          '61-80': 'forte_indicio',
+          '81-100': 'evidencia_muito_forte_documentada'
+        },
+        contextPackets: nodes.map((node) => ({
+          nodeId: node.id,
+          text: [
+            `titulo: ${node.titulo}`,
+            `tipo: ${node.tipo}`,
+            `contexto: ${node.contexto}`,
+            `fonte: ${node.fonte || 'nao_informado'}`,
+            `periodo: ${node.periodo || 'nao_informado'}`,
+            `tags: ${(node.tags || []).join(', ') || 'nao_informado'}`
+          ].join('\n')
+        }))
+      }
+    };
+  };
+
+  const handleDownloadScientificProject = () => {
+    const payload = buildScientificProjectPayload();
+    if (!payload) {
+      window.alert('Abra uma linhagem principal para baixar o projeto científico atual.');
+      return;
+    }
+
+    const rawName = payload.metadata.rootNodeTitle || payload.metadata.rootNodeId || 'linhagem';
+    const safeName = rawName
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    const dayStamp = new Date().toISOString().slice(0, 10);
+    const filename = `projeto-cientifico-${safeName || 'linhagem'}-${dayStamp}.json`;
+
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: 'application/json;charset=utf-8'
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+  };
+
+  const roots = data.nodes.filter(n => !n.parentId);
+  const history = [...data.nodes].sort((a, b) => b.createdAt - a.createdAt).slice(0, 10);
 
   return (
     <div className="w-full h-full bg-white border-r border-slate-200 flex flex-col font-sans text-slate-600 shadow-sm z-20">
@@ -227,19 +520,78 @@ export default function ThoughtControls({
           </div>
         </div>
         
-        {/* Memory Integrity Indicator */}
-        {!activeLineageId && (
-          <button 
-            onClick={() => setIsCleaningOpen(true)}
-            className="p-2 hover:bg-slate-50 text-slate-400 hover:text-rose-600 transition-all rounded-xl border border-transparent hover:border-rose-100 flex items-center gap-2"
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleDownloadScientificProject}
+            disabled={!activeLineageId}
+            title={activeLineageId ? 'Baixar projeto científico desta linhagem' : 'Abra uma linhagem principal para baixar'}
+            className={`h-8 px-2.5 inline-flex items-center gap-1.5 rounded-lg border text-[10px] font-black uppercase tracking-wider transition-all ${
+              activeLineageId
+                ? 'border-slate-200 text-slate-500 hover:text-blue-600 hover:border-blue-200 hover:bg-blue-50'
+                : 'border-slate-100 text-slate-300 cursor-not-allowed'
+            }`}
           >
-            <RefreshCcw className="w-4 h-4" />
-            <div className="text-left hidden md:block">
-              <div className="text-[8px] font-black uppercase text-slate-500">Qualidade</div>
-              <div className="text-[10px] font-bold text-rose-600">{memoryAnalysis.qualityReport?.noisePercentage.toFixed(0)}% Ruído</div>
-            </div>
+            <Download className="w-3.5 h-3.5" />
+            <span className="hidden xl:inline">Baixar Científico</span>
           </button>
-        )}
+
+          <div className="relative" ref={settingsMenuRef}>
+            <button 
+              onClick={() => setIsSettingsOpen(prev => !prev)}
+              title="Configurações"
+              className="h-8 w-8 inline-flex items-center justify-center text-slate-400 hover:text-blue-600 hover:bg-slate-50 transition-all rounded-lg border border-transparent hover:border-slate-200"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
+
+            <AnimatePresence>
+              {isSettingsOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -6, scale: 0.98 }}
+                  className="absolute right-0 top-10 z-50 w-64 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl"
+                >
+                  <div className="px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400 border-b border-slate-100">
+                    Visualização
+                  </div>
+                  <div className="py-1">
+                    {viewModes.map(({ mode, label, icon: Icon }) => (
+                      <button
+                        key={mode}
+                        onClick={() => {
+                          onViewModeChange(mode);
+                          setIsSettingsOpen(false);
+                        }}
+                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition-colors ${
+                          viewMode === mode
+                            ? 'bg-blue-600 text-white'
+                            : 'text-slate-600 hover:bg-slate-100'
+                        }`}
+                      >
+                        <Icon className={`w-3.5 h-3.5 ${viewMode === mode ? 'text-white' : 'text-blue-500'}`} />
+                        <span className="truncate">{label}</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="mt-1 pt-2 border-t border-slate-100">
+                    <button
+                      onClick={() => {
+                        setIsCleaningOpen(true);
+                        setIsSettingsOpen(false);
+                      }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors"
+                    >
+                      <ShieldCheck className="w-3.5 h-3.5 text-blue-500" />
+                      Qualidade da memória
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </div>
       </div>
 
       {/* Tabs */}

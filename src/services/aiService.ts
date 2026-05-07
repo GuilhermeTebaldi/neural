@@ -1,7 +1,16 @@
 import { GoogleGenAI } from "@google/genai";
 import { ThoughtNode, MemoryAnalysis } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+const geminiApiKey = (
+  process.env.GEMINI_API_KEY ||
+  process.env.VITE_GEMINI_API_KEY ||
+  ""
+).trim();
+const hasGeminiApiKey = geminiApiKey.length > 0;
+const ai = hasGeminiApiKey ? new GoogleGenAI({ apiKey: geminiApiKey }) : null;
+
+const MISSING_KEY_MESSAGE =
+  "A IA está sem configuração de chave. Defina GEMINI_API_KEY (ou VITE_GEMINI_API_KEY) no ambiente para habilitar busca e síntese.";
 
 export interface ChatMessage {
   role: 'user' | 'model';
@@ -14,6 +23,10 @@ export async function askMindArchitect(
   analysis: MemoryAnalysis,
   history: ChatMessage[] = []
 ): Promise<string> {
+  if (!ai) {
+    return MISSING_KEY_MESSAGE;
+  }
+
   try {
     const prompt = `
       Você é o RAFAEL, um sistema de memória estruturada. Sua função é ajudar o usuário a organizar e navegar em seus próprios pensamentos registrados.
@@ -61,6 +74,8 @@ export async function askMindArchitect(
 }
 
 export async function generateEmbedding(text: string): Promise<number[]> {
+  if (!ai) return [];
+
   try {
     const result = await ai.models.embedContent({
       model: "gemini-embedding-2-preview",

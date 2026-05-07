@@ -1,30 +1,21 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
-import { Settings, Orbit, LayoutGrid, Share2, GitBranch, GitGraph, Zap, Info, RefreshCcw, Cpu } from 'lucide-react';
+import { GitGraph, RefreshCcw } from 'lucide-react';
 import { MentalArchitecture, ThoughtNode, GraphViewMode } from '../types';
-import { motion, AnimatePresence } from 'motion/react';
 
 interface ThoughtGraphProps {
   data: MentalArchitecture;
   onNodeClick: (node: ThoughtNode) => void;
   selectedId?: string;
   activeLineageId: string | null;
+  viewMode: GraphViewMode;
 }
 
-export default function ThoughtGraph({ data, onNodeClick, selectedId, activeLineageId }: ThoughtGraphProps) {
+export default function ThoughtGraph({ data, onNodeClick, selectedId, activeLineageId, viewMode }: ThoughtGraphProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
-  const [viewMode, setViewMode] = useState<GraphViewMode>(() => {
-    const saved = localStorage.getItem('mind_architect_view_mode');
-    return (saved as GraphViewMode) || 'neural';
-  });
-
-  useEffect(() => {
-    localStorage.setItem('mind_architect_view_mode', viewMode);
-  }, [viewMode]);
-  const [showModes, setShowModes] = useState(false);
   const simulationRef = useRef<any>(null);
   const [isOrganizing, setIsOrganizing] = useState(false);
 
@@ -47,14 +38,6 @@ export default function ThoughtGraph({ data, onNodeClick, selectedId, activeLine
       sim.force('collision').radius(60);
       setIsOrganizing(false);
     }, 2000);
-  };
-
-  const viewModeIcons: Record<GraphViewMode, { icon: any, label: string }> = {
-    neural: { icon: Zap, label: 'Rede Neural' },
-    radial: { icon: Orbit, label: 'Núcleos de Atração' },
-    hierarchical: { icon: GitBranch, label: 'Mapa de Linhagem' },
-    flow: { icon: Share2, label: 'Fluxo Evolutivo' },
-    synapse: { icon: Cpu, label: 'Malha Sináptica' }
   };
 
   useEffect(() => {
@@ -433,44 +416,6 @@ export default function ThoughtGraph({ data, onNodeClick, selectedId, activeLine
             Recalibrar Matriz
           </button>
         </div>
-      </div>
-
-      {/* Mode Selector */}
-      <div className="absolute top-6 right-6 md:top-6 md:right-6 z-20 flex flex-col items-end gap-2 mt-12 md:mt-0">
-        <button 
-          onClick={() => setShowModes(!showModes)}
-          className={`p-3 rounded-2xl shadow-xl border transition-all duration-300 ${showModes ? 'bg-indigo-600 border-indigo-500 text-white rotate-90' : 'bg-white border-slate-200 text-slate-600 hover:border-indigo-300 hover:text-indigo-600'}`}
-        >
-          <Settings className="w-5 h-5" />
-        </button>
-
-        <AnimatePresence>
-          {showModes && (
-            <motion.div 
-              initial={{ opacity: 0, x: 20, scale: 0.9 }}
-              animate={{ opacity: 1, x: 0, scale: 1 }}
-              exit={{ opacity: 0, x: 20, scale: 0.9 }}
-              className="bg-white/80 backdrop-blur-xl border border-indigo-100 rounded-3xl p-2 shadow-2xl flex flex-col gap-1 min-w-[220px]"
-            >
-              <div className="px-4 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400 border-b border-indigo-50 mb-1">
-                Modo de Visualização
-              </div>
-              {(Object.entries(viewModeIcons) as [GraphViewMode, any][]).map(([mode, { icon: Icon, label }]) => (
-                <button
-                  key={mode}
-                  onClick={() => {
-                    setViewMode(mode);
-                    setShowModes(false);
-                  }}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-bold transition-all ${viewMode === mode ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'text-slate-600 hover:bg-indigo-50 hover:text-indigo-600'}`}
-                >
-                  <Icon className={`w-4 h-4 ${viewMode === mode ? 'text-white' : 'text-indigo-400'}`} />
-                  {label}
-                </button>
-              ))}
-            </motion.div>
-          )}
-        </AnimatePresence>
       </div>
 
       <svg ref={svgRef} className="w-full h-full" />

@@ -569,7 +569,10 @@ export function createExampleLongevityProject(): ThoughtNode {
 
 export function updateThought(
   nodeId: string,
-  updates: Partial<Pick<ThoughtNode, 'title' | 'content' | 'type' | 'images' | 'tags'>>
+  updates: Partial<Pick<
+    ThoughtNode,
+    'title' | 'content' | 'type' | 'images' | 'tags' | 'source' | 'period' | 'factualConfidence' | 'hypothesisConfidence' | 'evidenceConfidence' | 'hypotheses' | 'evidences'
+  >>
 ): void {
   logger.info(`Updating thought: ${nodeId}`);
   const data = getMentalData();

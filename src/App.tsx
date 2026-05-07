@@ -6,8 +6,9 @@
 import React, { useState, useCallback } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Menu, X } from 'lucide-react';
-import { MentalArchitecture, ThoughtNode } from './types';
-import { getMentalData, deleteThought, updateThought } from './lib/thoughts-store';
+import { GraphViewMode, MentalArchitecture, ThoughtNode, ThoughtType } from './types';
+import { getMentalData, deleteThought, updateThought, addThought } from './lib/thoughts-store';
+import { generateEmbedding } from './services/aiService';
 import ThoughtGraph from './components/ThoughtGraph';
 import ThoughtControls from './components/ThoughtControls';
 import ThoughtDetail from './components/ThoughtDetail';
@@ -19,6 +20,7 @@ export default function App() {
   const [isAdding, setIsAdding] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [hasInitialized, setHasInitialized] = useState(false);
+  const [viewMode, setViewMode] = useState<GraphViewMode>('flow');
 
   // Auto-select latest work on startup
   React.useEffect(() => {
@@ -106,13 +108,67 @@ export default function App() {
     }
   }, [data.nodes, activeLineageId]);
 
-  const handleEvolve = useCallback(() => {
-    setIsAdding(true);
-    if (window.innerWidth < 768) {
-      setSidebarOpen(true);
-      // Removed setSelectedNode(null) to keep the evolution context
+  const handleEvolve = useCallback(async (
+    parentId: string,
+    payload: {
+      title: string;
+      content: string;
+      type: ThoughtType;
+      source?: string;
+      period?: string;
+      factualConfidence?: number;
+      hypothesisConfidence?: number;
+      evidenceConfidence?: number;
+      tags?: string[];
+      hypotheses?: string[];
+      evidences?: string[];
     }
-  }, []);
+  ) => {
+    if (!payload.title.trim()) return;
+
+    const cleanUpdates = {
+      source: payload.source?.trim() || undefined,
+      period: payload.period?.trim() || undefined,
+      factualConfidence: payload.factualConfidence,
+      hypothesisConfidence: payload.hypothesisConfidence,
+      evidenceConfidence: payload.evidenceConfidence,
+      hypotheses: payload.hypotheses && payload.hypotheses.length > 0 ? payload.hypotheses : undefined,
+      evidences: payload.evidences && payload.evidences.length > 0 ? payload.evidences : undefined
+    };
+
+    const hasManualMeta = Object.values(cleanUpdates).some((value) =>
+      Array.isArray(value) ? value.length > 0 : value !== undefined && value !== null
+    );
+
+    const evolveWithPayload = (embedding?: number[]) => {
+      const newNode = addThought(
+        payload.title,
+        payload.content,
+        payload.type,
+        parentId,
+        [],
+        embedding,
+        payload.tags || []
+      );
+
+      if (hasManualMeta) {
+        updateThought(newNode.id, cleanUpdates);
+      }
+
+      handleThoughtAdded({
+        ...newNode,
+        ...cleanUpdates,
+        tags: payload.tags || newNode.tags
+      });
+    };
+
+    try {
+      const embedding = await generateEmbedding(`${payload.title} ${payload.content}`);
+      evolveWithPayload(embedding);
+    } catch {
+      evolveWithPayload();
+    }
+  }, [handleThoughtAdded]);
 
   const handleLinkClick = useCallback((id: string) => {
     const node = data.nodes.find(n => n.id === id);
@@ -153,14 +209,14 @@ export default function App() {
       {/* Mobile Menu Toggle */}
       <button 
         onClick={() => setSidebarOpen(!sidebarOpen)}
-        className="md:hidden fixed top-4 right-4 z-50 p-2 bg-white border border-slate-200 rounded-lg shadow-lg text-slate-600 hover:text-blue-600 transition-colors"
+        className="md:hidden fixed top-3 left-3 z-40 p-2.5 bg-white border border-slate-200 rounded-lg shadow-lg text-slate-600 hover:text-blue-600 transition-colors"
       >
         {sidebarOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
       </button>
 
       {/* Sidebar Controls */}
       <div className={`
-        fixed inset-y-0 left-0 z-40 w-80 transform transition-transform duration-300 ease-in-out bg-white md:relative md:translate-x-0
+        fixed inset-y-0 left-0 z-40 w-[88vw] max-w-[22rem] md:w-80 transform transition-transform duration-300 ease-in-out bg-white shadow-2xl md:shadow-none md:relative md:translate-x-0
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
       `}>
         <ThoughtControls 
@@ -177,6 +233,8 @@ export default function App() {
           data={data}
           onRefreshData={refreshData}
           onDelete={handleDelete}
+          viewMode={viewMode}
+          onViewModeChange={setViewMode}
         />
       </div>
 
@@ -194,7 +252,7 @@ export default function App() {
       </AnimatePresence>
 
       {/* Main Canvas Area */}
-      <main className="flex-1 relative">
+      <main className="flex-1 min-w-0 relative">
         {/* Top bar shadow/indicator */}
         <div className="absolute top-0 left-0 right-0 h-20 bg-gradient-to-b from-slate-50 to-transparent pointer-events-none z-10" />
         
@@ -203,6 +261,7 @@ export default function App() {
           onNodeClick={(node) => handleNodeSelect(node, true)} // Clicks no graph NUNCA saltam para o último
           selectedId={selectedNode?.id}
           activeLineageId={activeLineageId}
+          viewMode={viewMode}
         />
 
         {/* Floating Overlay for Tips */}

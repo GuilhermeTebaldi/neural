@@ -23,6 +23,13 @@ export interface ThoughtNode {
   connections: string[]; // New semantic connections
   tags: string[];
   images?: string[];
+  source?: string;
+  period?: string;
+  factualConfidence?: number;
+  hypothesisConfidence?: number;
+  evidenceConfidence?: number;
+  hypotheses?: string[];
+  evidences?: string[];
 }
 
 export interface ThoughtLink {
